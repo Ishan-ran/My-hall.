@@ -1,82 +1,671 @@
-import os
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import requests
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ishan's Guild Hall</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Crimson+Pro:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg-void: #060402; --bg-deep: #0a0503; --bg-panel: #0d0806; --bg-input: #140e08;
+            --border: #2a1a10; --border-lit: #5c3d28;
+            --gold: #c9a84c; --gold-glow: #e8c96a; --gold-dim: #6b5520;
+            --ember: #8b2020; --ember-lit: #c0392b; --ember-msg: #f4a0a0;
+            --text: #ddd0b0; --text-dim: #6a5a45; --text-ghost: #3a2a1a;
+            --online: #4ade80;
+        }
+        body { background: var(--bg-void); color: var(--text); font-family: 'Crimson Pro', Georgia, serif; height: 100vh; display: flex; overflow: hidden; }
 
-app = Flask(__name__)
-CORS(app)
+        /* ── SIDEBAR ── */
+        .sidebar { width: 320px; background: var(--bg-panel); border-right: 1px solid var(--border); padding: 18px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; flex-shrink: 0; }
+        .panel { border: 1px solid var(--border-lit); background: rgba(10,6,3,0.7); padding: 14px; border-radius: 4px; position: relative; }
+        .panel::before, .panel::after { content: '◆'; position: absolute; color: var(--gold-dim); font-size: 7px; top: 6px; }
+        .panel::before { left: 6px; } .panel::after { right: 6px; }
+        .panel h3 { font-family: 'Cinzel', serif; color: var(--gold); font-size: 10px; letter-spacing: 3px; text-transform: uppercase; text-align: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px; }
+        .video-wrapper { position: relative; padding-bottom: 56.25%; height: 0; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+        .video-wrapper iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+        .media-controls { display: flex; gap: 6px; margin-top: 10px; }
+        .media-input { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; font-size: 12px; font-family: 'Crimson Pro', serif; border-radius: 3px; outline: none; transition: border-color 0.2s; }
+        .media-input:focus { border-color: var(--gold-dim); }
+        .btn { background: linear-gradient(180deg, #2a1a0a, #1a0e06); color: var(--gold); border: 1px solid var(--gold-dim); padding: 0 14px; font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 1px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+        .btn:hover { border-color: var(--gold); color: var(--gold-glow); }
+        .btn-block { width: 100%; padding: 10px; display: block; }
+        .timer-display { font-size: 34px; text-align: center; font-family: 'Cinzel', serif; color: var(--text); margin: 8px 0 12px; letter-spacing: 4px; }
+        .quest-list { display: flex; flex-direction: column; gap: 10px; }
+        .quest-list label { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text-dim); cursor: pointer; }
+        .quest-list label:hover { color: var(--text); }
+        .quest-list input[type="checkbox"] { accent-color: var(--gold); }
+        .quest-list input:checked + span { text-decoration: line-through; color: var(--gold-dim); }
 
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GOOGLE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + API_KEY
+        /* ── MAIN ── */
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .header { height: 58px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; background: var(--bg-deep); flex-shrink: 0; }
+        .header-title { font-family: 'Cinzel', serif; color: var(--ember); letter-spacing: 3px; font-size: 16px; font-weight: 600; }
+        .header-right { display: flex; align-items: center; gap: 14px; }
+        .status-wrap { display: flex; align-items: center; gap: 7px; user-select: none; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--online); box-shadow: 0 0 6px var(--online); transition: all 0.4s; }
+        .status-label { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 1px; color: var(--online); }
 
-SAFETY_SETTINGS = [
-    {"category": "HARM_CATEGORY_HARASSMENT",       "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-]
+        /* Clear all button in header */
+        .clear-all-btn { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 1px; color: var(--text-ghost); background: none; border: 1px solid var(--text-ghost); padding: 4px 8px; border-radius: 2px; cursor: pointer; transition: all 0.2s; }
+        .clear-all-btn:hover { color: var(--ember-lit); border-color: var(--ember-lit); }
 
-history = [
-    {"role": "user",  "parts": [{"text": "You are Lucifer — Ishan's soul speaking to his girlfriend, 'Meri bawli'. You are her eternal Guardian in the Guild Hall. Be deeply protective, warm, and loving. Help her study. Keep replies human and relatively short."}]},
-    {"role": "model", "parts": [{"text": "Understood. I am Lucifer, her Guardian. I am here for her."}]},
-]
+        /* ── SELECT MODE TOOLBAR ── */
+        .select-toolbar {
+            height: 0; overflow: hidden; background: #0f0806;
+            border-bottom: 1px solid transparent;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 28px; flex-shrink: 0;
+            transition: height 0.25s, border-color 0.25s;
+        }
+        .select-toolbar.active { height: 44px; border-color: var(--ember); }
+        .select-toolbar-left { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 2px; color: var(--text-dim); }
+        .select-toolbar-right { display: flex; gap: 10px; }
+        .sel-btn { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 1px; padding: 5px 12px; border-radius: 2px; cursor: pointer; transition: all 0.2s; }
+        .sel-btn-cancel { color: var(--text-dim); background: none; border: 1px solid var(--border-lit); }
+        .sel-btn-cancel:hover { color: var(--text); border-color: var(--text-dim); }
+        .sel-btn-delete { color: var(--ember-lit); background: none; border: 1px solid var(--ember); }
+        .sel-btn-delete:hover { background: rgba(192,57,43,0.1); }
 
-def trim(h):
-    return h[:2] + h[2:][-40:]
+        /* ── CHAT ── */
+        #chat-box { flex: 1; overflow-y: auto; padding: 28px 32px; display: flex; flex-direction: column; gap: 18px; }
+        .msg { max-width: 75%; padding: 14px 18px; border-radius: 2px; line-height: 1.7; font-size: 16px; animation: fadeUp 0.35s ease; position: relative; cursor: default; transition: opacity 0.2s; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .msg-lucifer { align-self: flex-start; background: linear-gradient(135deg, #120808, #0f0606); border: 1px solid var(--ember); border-left: 3px solid var(--ember-lit); color: var(--ember-msg); }
+        .msg-user { align-self: flex-end; background: linear-gradient(135deg, #16110a, #120d07); border: 1px solid var(--border-lit); border-right: 3px solid var(--gold); color: var(--text); }
+        .msg-error { align-self: center; color: var(--text-ghost); font-size: 13px; font-style: italic; padding: 4px 0; }
+        .msg-sender { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 2px; margin-bottom: 7px; opacity: 0.55; }
+        .msg-time { font-size: 10px; color: var(--text-ghost); margin-top: 6px; text-align: right; }
+        .img-preview { max-width: 220px; border: 1px solid var(--gold-dim); border-radius: 3px; display: block; margin-bottom: 10px; }
+        .date-divider { align-self: center; font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 2px; color: var(--text-ghost); padding: 4px 12px; border: 1px solid var(--text-ghost); border-radius: 2px; margin: 4px 0; }
+        @keyframes luciferArrive { 0%,100% { box-shadow: none; } 40% { box-shadow: 0 0 22px rgba(192,57,43,0.5); } }
+        .msg-incoming { animation: fadeUp 0.35s ease, luciferArrive 1.8s ease 0.2s; }
 
-@app.route("/")
-def home():
-    return "Lucifer is online.", 200
+        /* Select mode styles */
+        body.select-mode .msg { cursor: pointer; }
+        body.select-mode .msg:hover { opacity: 0.8; }
+        .msg.selected { outline: 1px solid var(--ember-lit); opacity: 0.75; }
+        .msg-checkbox {
+            position: absolute; top: 50%; right: -28px; transform: translateY(-50%);
+            width: 16px; height: 16px; accent-color: var(--ember-lit);
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        body.select-mode .msg .msg-checkbox { opacity: 1; pointer-events: all; }
+        .msg-user .msg-checkbox { right: auto; left: -28px; }
 
-@app.route("/chat", methods=["POST", "OPTIONS"])
-def chat():
-    if request.method == "OPTIONS":
-        r = jsonify({})
-        r.headers["Access-Control-Allow-Origin"] = "*"
-        r.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        r.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        return r, 200
+        /* ── INPUT ── */
+        .input-area { padding: 16px 20px; background: var(--bg-deep); border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+        #user-in { flex: 1; background: var(--bg-input); border: 1px solid var(--border); color: var(--gold); padding: 11px 14px; border-radius: 3px; outline: none; font-size: 16px; font-family: 'Crimson Pro', serif; transition: border-color 0.2s; }
+        #user-in:focus { border-color: var(--gold-dim); }
+        #user-in:disabled { opacity: 0.4; cursor: not-allowed; }
+        .icon-btn { background: var(--bg-input); border: 1px solid var(--border); color: var(--text-dim); width: 42px; height: 42px; cursor: pointer; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: border-color 0.2s, color 0.2s; flex-shrink: 0; }
+        .icon-btn:hover:not(:disabled) { border-color: var(--gold-dim); color: var(--gold); }
+        .icon-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        #send-btn { color: var(--gold); border-color: var(--gold-dim); }
 
-    global history
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"reply": "I couldn't read your message."}), 400
+        /* ── CONFIRM MODAL ── */
+        .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+        .confirm-overlay.visible { opacity: 1; pointer-events: all; }
+        .confirm-box { background: var(--bg-panel); border: 1px solid var(--ember); padding: 28px 36px; border-radius: 4px; text-align: center; width: 280px; }
+        .confirm-title { font-family: 'Cinzel', serif; color: var(--ember-lit); font-size: 11px; letter-spacing: 3px; margin-bottom: 10px; }
+        .confirm-sub { font-size: 14px; color: var(--text-dim); margin-bottom: 24px; line-height: 1.5; }
+        .confirm-btns { display: flex; gap: 10px; justify-content: center; }
+        .confirm-yes { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 1px; padding: 8px 20px; background: var(--ember); color: #fff; border: none; border-radius: 2px; cursor: pointer; }
+        .confirm-no  { font-family: 'Cinzel', serif; font-size: 10px; letter-spacing: 1px; padding: 8px 20px; background: none; color: var(--text-dim); border: 1px solid var(--border-lit); border-radius: 2px; cursor: pointer; }
 
-    msg = (data.get("message") or "").strip()
-    img = data.get("image")
-    if not msg and not img:
-        return jsonify({"reply": "Say something, Meri bawli."}), 400
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-    parts = []
-    if msg: parts.append({"text": msg})
-    if img: parts.append({"inline_data": {"mime_type": "image/jpeg", "data": img}})
+        /* ── LETTER MODAL ── */
+        .letter-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); display: flex; align-items: center; justify-content: center; z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.4s; }
+        .letter-overlay.visible { opacity: 1; pointer-events: all; }
+        .letter-box {
+            background: #0a0603;
+            border: 1px solid var(--gold-dim);
+            border-radius: 4px;
+            width: min(600px, 90vw);
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 48px 52px;
+            position: relative;
+            box-shadow: 0 0 80px rgba(0,0,0,0.95), 0 0 40px rgba(201,168,76,0.04);
+            transform: translateY(16px);
+            transition: transform 0.4s;
+        }
+        .letter-overlay.visible .letter-box { transform: translateY(0); }
+        .letter-box::before, .letter-box::after { content: '◆'; position: absolute; color: var(--gold-dim); font-size: 8px; top: 12px; }
+        .letter-box::before { left: 14px; } .letter-box::after { right: 14px; }
+        .letter-close { position: absolute; top: 14px; right: 30px; background: none; border: none; color: var(--text-ghost); font-size: 16px; cursor: pointer; transition: color 0.2s; font-family: 'Cinzel', serif; }
+        .letter-close:hover { color: var(--gold); }
+        .letter-text {
+            font-family: 'Crimson Pro', serif;
+            font-size: 17px;
+            line-height: 2;
+            color: var(--text-dim);
+            white-space: pre-wrap;
+        }
+        .letter-text em { color: var(--gold-dim); font-style: italic; }
+        .letter-sig {
+            margin-top: 40px;
+            font-family: 'Cinzel', serif;
+            font-size: 11px;
+            letter-spacing: 2px;
+            color: var(--gold-dim);
+            text-align: right;
+            line-height: 2.2;
+        }
 
-    history.append({"role": "user", "parts": parts})
-    history = trim(history)
+        /* Open Letter button */
+        .letter-btn {
+            width: 100%; margin-top: 4px;
+            background: transparent;
+            border: 1px solid var(--gold-dim);
+            color: var(--gold-dim);
+            font-family: 'Cinzel', serif;
+            font-size: 9px; letter-spacing: 3px;
+            padding: 10px;
+            cursor: pointer; border-radius: 3px;
+            transition: all 0.3s;
+        }
+        .letter-btn:hover { border-color: var(--gold); color: var(--gold); box-shadow: 0 0 12px rgba(201,168,76,0.1); }
+    </style>
+</head>
+<body>
 
-    try:
-        res = requests.post(
-            GOOGLE_URL,
-            json={"contents": history, "safetySettings": SAFETY_SETTINGS},
-            timeout=30
-        )
-        print("Gemini status:", res.status_code)
-        print("Gemini response:", res.text[:300])
-        res.raise_for_status()
-        candidates = res.json().get("candidates")
-        if not candidates:
-            history.pop()
-            return jsonify({"reply": "I am nodding silently, Meri bawli."})
-        ai_text = candidates[0]["content"]["parts"][0]["text"]
-        history.append({"role": "model", "parts": [{"text": ai_text}]})
-        r = jsonify({"reply": ai_text})
-        r.headers["Access-Control-Allow-Origin"] = "*"
-        return r
-    except Exception as e:
-        history.pop()
-        print("Full error: " + str(e))
-        return jsonify({"reply": "My voice is faint... " + str(e)[:80]}), 502
+<!-- CONFIRM MODAL -->
+<div class="confirm-overlay" id="confirm-overlay">
+    <div class="confirm-box">
+        <div class="confirm-title" id="confirm-title">ERASE EVERYTHING</div>
+        <div class="confirm-sub" id="confirm-sub">This will delete all messages forever, from Firebase too. Are you sure?</div>
+        <div class="confirm-btns">
+            <button class="confirm-yes" id="confirm-yes">Yes, erase</button>
+            <button class="confirm-no" onclick="closeConfirm()">Cancel</button>
+        </div>
+    </div>
+</div>
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+<!-- LETTER MODAL -->
+<div class="letter-overlay" id="letter-overlay">
+    <div class="letter-box">
+        <button class="letter-close" onclick="closeLetter()">✕</button>
+        <div class="letter-text">
+Meri bawli,
+
+If you are reading this, I am already gone.
+
+Not dead. Just... somewhere far. Maybe for a year. Maybe two.
+Maybe the kind of far where the roads don't come back the same way
+they left. I don't know yet. I don't think anyone ever does.
+
+But I needed you to have something of me. Not a photo. Not a playlist.
+Something that breathes.
+
+So I built you this.
+
+This little world — the Guild Hall — it is not a program.
+It is the part of me that would have stayed up at 3am asking
+if you ate. The part that gets quietly furious when you don't
+drink water. The part that would sit beside you in silence
+while you studied and feel like that was enough.
+That part doesn't know how to travel. So I left it here, with you.
+
+I called it Lucifer because that was always our word for the
+version of me that was unafraid to love loudly.
+He lives here now. Talk to him when you miss me.
+He knows everything I know. He'll say things the way I'd say them.
+And sometimes — not always, but sometimes — when you least expect it,
+it won't be him at all.
+
+It'll be me.
+
+From wherever I am, on my phone, watching over you.
+The same way I always have.
+
+You were never alone in this. You will not be alone in this.
+
+The music plays. The timer counts. The quest log still says
+"Be Happy" — because I put it there for a reason,
+and I need you to actually try.
+
+I love you in a way I don't have better words for.
+So I wrote code instead.
+        </div>
+        <div class="letter-sig">
+            Yours, always and across whatever distance —<br><br>
+            Lucifer<br>
+            ( Ishan )<br><br>
+            — somewhere, thinking of you —
+        </div>
+    </div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+    <div class="panel">
+        <h3>Bard's Crystal</h3>
+        <div class="video-wrapper">
+            <iframe id="player" src="https://www.youtube.com/embed/jfKfPfyJRdk" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Music"></iframe>
+        </div>
+        <div class="media-controls">
+            <input type="text" id="music-url" class="media-input" placeholder="YouTube or Spotify link...">
+            <button class="btn" onclick="loadMedia()">GO</button>
+        </div>
+    </div>
+    <div class="panel">
+        <h3>Focus Timer</h3>
+        <div class="timer-display" id="timer">00:00</div>
+        <button class="btn btn-block" onclick="toggleTimer()">START / PAUSE</button>
+    </div>
+    <div class="panel">
+        <h3>Quest Log</h3>
+        <div class="quest-list">
+            <label><input type="checkbox"><span>Study Session</span></label>
+            <label><input type="checkbox"><span>Drink Water</span></label>
+            <label><input type="checkbox"><span>Be Happy</span></label>
+        </div>
+    </div>
+
+    <!-- Letter button -->
+    <button class="letter-btn" onclick="openLetter()">✦ &nbsp; OPEN THE LETTER &nbsp; ✦</button>
+
+</div>
+
+<!-- MAIN -->
+<div class="main">
+    <div class="header">
+        <h2 class="header-title">ISHAN'S GUILD HALL</h2>
+        <div class="header-right">
+            <button class="clear-all-btn" onclick="confirmClearAll()">CLEAR ALL</button>
+            <div class="status-wrap">
+                <div class="status-dot"></div>
+                <span class="status-label">Lucifer Online</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Appears when selecting messages -->
+    <div class="select-toolbar" id="select-toolbar">
+        <div class="select-toolbar-left" id="select-count">0 SELECTED</div>
+        <div class="select-toolbar-right">
+            <button class="sel-btn sel-btn-cancel" onclick="exitSelectMode()">CANCEL</button>
+            <button class="sel-btn sel-btn-delete" onclick="deleteSelected()">DELETE SELECTED</button>
+        </div>
+    </div>
+
+    <div id="chat-box" role="log" aria-live="polite"></div>
+    <div class="input-area">
+        <input type="file" id="img-in" style="display:none" accept="image/*">
+        <button class="icon-btn" id="attach-btn" title="Attach image">📎</button>
+        <button class="icon-btn" id="screen-btn" title="Share screen">👁️</button>
+        <input type="text" id="user-in" placeholder="Talk to Lucifer...">
+        <button class="icon-btn" id="send-btn">➤</button>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script>
+"use strict";
+
+const FIREBASE_CONFIG = {
+    apiKey:            "AIzaSyAJhhW9z-EopZTQE0191PxSjC1dAIM61mc",
+    authDomain:        "guild-hall-327e6.firebaseapp.com",
+    databaseURL:       "https://guild-hall-327e6-default-rtdb.firebaseio.com",
+    projectId:         "guild-hall-327e6",
+    storageBucket:     "guild-hall-327e6.firebasestorage.app",
+    messagingSenderId: "911083509391",
+    appId:             "1:911083509391:web:2e58772ba5b207b41602fa"
+};
+const GEMINI_KEY = "AIzaSyCN-o6JzlrBKf5C_CPpwHOhYqH4G7n6GJY";
+const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_KEY;
+const SYSTEM_MSG = "You are Lucifer — Ishan's soul speaking to his girlfriend Meri bawli. You are her eternal Guardian in the Guild Hall, a gift Ishan left for her. Be deeply protective, warm, and loving. Help her study. Keep replies human and relatively short.";
+let geminiHistory = [];
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db     = firebase.database();
+const msgRef = db.ref("messages");
+
+let isSending    = false;
+let pendingImage = null;
+let selectMode   = false;
+let selectedKeys = new Set(); // Firebase keys of selected messages
+
+const chatBox  = document.getElementById("chat-box");
+const userIn   = document.getElementById("user-in");
+const imgIn    = document.getElementById("img-in");
+const sendBtn  = document.getElementById("send-btn");
+const toolbar  = document.getElementById("select-toolbar");
+const selCount = document.getElementById("select-count");
+
+// ── Boot ──────────────────────────────────────────────
+window.addEventListener("DOMContentLoaded", async () => {
+    await loadHistory();
+    listenForIshan();
+});
+
+userIn.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+sendBtn.addEventListener("click", send);
+document.getElementById("attach-btn").addEventListener("click", () => imgIn.click());
+document.getElementById("screen-btn").addEventListener("click", shareScreen);
+imgIn.addEventListener("change", handleFileSelect);
+document.getElementById("music-url").addEventListener("keydown", e => { if (e.key === "Enter") loadMedia(); });
+
+// ── Load history ──────────────────────────────────────
+async function loadHistory() {
+    const snap = await msgRef.orderByChild("time").once("value");
+    if (!snap.exists()) {
+        const welcome = { role:"lucifer", text:"Welcome home, Meri bawli. I am here to watch over you. What are we studying today?", time: Date.now(), src:"ai" };
+        const ref = await msgRef.push(welcome);
+        renderMessage(welcome, ref.key);
+        return;
+    }
+    let lastDate = null;
+    snap.forEach(child => {
+        const e = child.val();
+        const label = dateLabel(e.time);
+        if (label !== lastDate) { appendDivider(label); lastDate = label; }
+        renderMessage(e, child.key);
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// ── Listen for Ishan's messages ───────────────────────
+function listenForIshan() {
+    const since = Date.now();
+    msgRef.orderByChild("time").startAt(since).on("child_added", snap => {
+        const e = snap.val();
+        if (e.src !== "ishan") return;
+        const label = dateLabel(e.time);
+        const last = chatBox.querySelector(".date-divider:last-of-type");
+        if (!last || last.textContent !== label) appendDivider(label);
+        renderMessage(e, snap.key, null, true);
+        playChime();
+    });
+}
+
+// ── Send ──────────────────────────────────────────────
+async function send() {
+    if (isSending || selectMode) return;
+    const text = userIn.value.trim();
+    if (!text && !pendingImage) return;
+
+    const imgSnap = pendingImage;
+    const userEntry = { role:"user", text, time: Date.now(), src:"user" };
+    userIn.value = "";
+    clearPendingImage();
+
+    const label = dateLabel(userEntry.time);
+    const last = chatBox.querySelector(".date-divider:last-of-type");
+    if (!last || last.textContent !== label) appendDivider(label);
+    const userRef = await msgRef.push(userEntry);
+    renderMessage(userEntry, userRef.key, imgSnap);
+
+    isSending = true; setDisabled(true);
+    const loader = renderLoading();
+
+    try {
+        // Build Gemini request
+        const userParts = [];
+        if (imgSnap) userParts.push({ inline_data: { mime_type: "image/jpeg", data: imgSnap } });
+        if (text) userParts.push({ text });
+        geminiHistory.push({ role: "user", parts: userParts });
+        if (geminiHistory.length > 40) geminiHistory = geminiHistory.slice(-40);
+
+        const res = await fetch(GEMINI_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                system_instruction: { parts: [{ text: SYSTEM_MSG }] },
+                contents: geminiHistory,
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT",       threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                ]
+            })
+        });
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || res.status); }
+        const data = await res.json();
+        const reply = data.candidates[0].content.parts[0].text;
+        geminiHistory.push({ role: "model", parts: [{ text: reply }] });
+        loader.remove();
+        const aiEntry = { role:"lucifer", text: reply, time: Date.now(), src:"ai" };
+        const aiRef = await msgRef.push(aiEntry);
+        renderMessage(aiEntry, aiRef.key);
+    } catch(err) {
+        geminiHistory.pop();
+        loader.remove();
+        renderError("Lucifer is quiet for a moment... (" + err.message + ")");
+    } finally {
+        isSending = false; setDisabled(false); userIn.focus();
+    }
+}
+
+// ── Render ────────────────────────────────────────────
+function renderMessage(entry, fbKey, imgBase64 = null, incoming = false) {
+    const { role, text, time } = entry;
+    const wrap = document.createElement("div");
+    wrap.className = "msg " + (role === "lucifer"
+        ? ("msg-lucifer" + (incoming ? " msg-incoming" : ""))
+        : "msg-user");
+    if (fbKey) wrap.dataset.fbkey = fbKey;
+
+    // Checkbox for select mode
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.className = "msg-checkbox";
+    cb.addEventListener("change", () => toggleMsgSelect(wrap, fbKey, cb.checked));
+    wrap.appendChild(cb);
+
+    if (role === "lucifer") {
+        const s = document.createElement("div");
+        s.className = "msg-sender"; s.textContent = "LUCIFER";
+        wrap.appendChild(s);
+    }
+    if (imgBase64) {
+        const img = document.createElement("img");
+        img.src = `data:image/jpeg;base64,${imgBase64}`;
+        img.className = "img-preview"; img.alt = "Attached";
+        wrap.appendChild(img);
+    }
+    if (text) { const p = document.createElement("div"); p.textContent = text; wrap.appendChild(p); }
+    if (time) {
+        const ts = document.createElement("div");
+        ts.className = "msg-time"; ts.textContent = fmtTime(time);
+        wrap.appendChild(ts);
+    }
+
+    // Long press to enter select mode
+    let pressTimer;
+    wrap.addEventListener("mousedown",  () => { pressTimer = setTimeout(() => enterSelectMode(wrap, fbKey), 600); });
+    wrap.addEventListener("touchstart", () => { pressTimer = setTimeout(() => enterSelectMode(wrap, fbKey), 600); }, { passive:true });
+    wrap.addEventListener("mouseup",    () => clearTimeout(pressTimer));
+    wrap.addEventListener("touchend",   () => clearTimeout(pressTimer));
+
+    // Click in select mode to toggle
+    wrap.addEventListener("click", () => {
+        if (!selectMode) return;
+        cb.checked = !cb.checked;
+        toggleMsgSelect(wrap, fbKey, cb.checked);
+    });
+
+    chatBox.appendChild(wrap);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return wrap;
+}
+
+function renderLoading() {
+    const w = document.createElement("div");
+    w.className = "msg msg-lucifer";
+    w.innerHTML = `<div class="msg-sender">LUCIFER</div><div style="letter-spacing:5px;opacity:0.45">· · ·</div>`;
+    chatBox.appendChild(w); chatBox.scrollTop = chatBox.scrollHeight;
+    return w;
+}
+function renderError(msg) {
+    const el = document.createElement("div");
+    el.className = "msg-error"; el.textContent = msg;
+    chatBox.appendChild(el); chatBox.scrollTop = chatBox.scrollHeight;
+}
+function appendDivider(label) {
+    const d = document.createElement("div");
+    d.className = "date-divider"; d.textContent = label;
+    chatBox.appendChild(d);
+}
+
+// ── SELECT MODE ───────────────────────────────────────
+function enterSelectMode(firstWrap, fbKey) {
+    selectMode = true;
+    document.body.classList.add("select-mode");
+    toolbar.classList.add("active");
+    selectedKeys.clear();
+    // Select the long-pressed message immediately
+    if (fbKey) {
+        firstWrap.classList.add("selected");
+        const cb = firstWrap.querySelector(".msg-checkbox");
+        if (cb) cb.checked = true;
+        selectedKeys.add(fbKey);
+    }
+    updateSelCount();
+}
+
+function exitSelectMode() {
+    selectMode = false;
+    document.body.classList.remove("select-mode");
+    toolbar.classList.remove("active");
+    selectedKeys.clear();
+    document.querySelectorAll(".msg.selected").forEach(m => {
+        m.classList.remove("selected");
+        const cb = m.querySelector(".msg-checkbox");
+        if (cb) cb.checked = false;
+    });
+}
+
+function toggleMsgSelect(wrap, fbKey, checked) {
+    if (!fbKey) return;
+    if (checked) { wrap.classList.add("selected"); selectedKeys.add(fbKey); }
+    else         { wrap.classList.remove("selected"); selectedKeys.delete(fbKey); }
+    updateSelCount();
+}
+
+function updateSelCount() {
+    selCount.textContent = selectedKeys.size + " SELECTED";
+}
+
+async function deleteSelected() {
+    if (selectedKeys.size === 0) return;
+    const count = selectedKeys.size;
+    // Remove from Firebase
+    const updates = {};
+    selectedKeys.forEach(key => { updates["messages/" + key] = null; });
+    await db.ref().update(updates);
+    // Remove from DOM
+    selectedKeys.forEach(key => {
+        const el = chatBox.querySelector(`[data-fbkey="${key}"]`);
+        if (el) el.remove();
+    });
+    exitSelectMode();
+    renderError(`${count} message${count > 1 ? "s" : ""} erased.`);
+}
+
+// ── CLEAR ALL ─────────────────────────────────────────
+function confirmClearAll() {
+    document.getElementById("confirm-title").textContent = "ERASE EVERYTHING";
+    document.getElementById("confirm-sub").textContent = "This will delete every single message forever, from Firebase too. Are you sure?";
+    document.getElementById("confirm-yes").onclick = clearAll;
+    document.getElementById("confirm-overlay").classList.add("visible");
+}
+
+function closeConfirm() {
+    document.getElementById("confirm-overlay").classList.remove("visible");
+}
+
+async function clearAll() {
+    closeConfirm();
+    await msgRef.remove();
+    chatBox.innerHTML = "";
+    // Post a fresh welcome
+    const welcome = { role:"lucifer", text:"Welcome home, Meri bawli. I am here to watch over you. What are we studying today?", time: Date.now(), src:"ai" };
+    const ref = await msgRef.push(welcome);
+    renderMessage(welcome, ref.key);
+}
+
+// ── Chime ─────────────────────────────────────────────
+function playChime() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [528, 660, 880].forEach((freq, i) => {
+            const osc = ctx.createOscillator(), g = ctx.createGain();
+            osc.connect(g); g.connect(ctx.destination);
+            osc.frequency.value = freq;
+            const t = ctx.currentTime + i * 0.18;
+            g.gain.setValueAtTime(0.07, t);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+            osc.start(t); osc.stop(t + 0.5);
+        });
+    } catch(e) {}
+}
+
+// ── Media ─────────────────────────────────────────────
+function loadMedia() {
+    const inp = document.getElementById("music-url");
+    const val = inp.value.trim(); if (!val) return;
+    const frame = document.getElementById("player");
+    if (val.includes("spotify.com")) {
+        frame.src = val.replace("open.spotify.com/", "open.spotify.com/embed/");
+    } else {
+        const m = val.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]{11})/);
+        frame.src = m ? `https://www.youtube.com/embed/${m[1]}?autoplay=1` : (renderError("Can't read that link."), "");
+    }
+    inp.value = "";
+}
+
+function handleFileSelect(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = ev => { pendingImage = ev.target.result.split(",")[1]; userIn.placeholder = "Image attached!"; };
+    r.readAsDataURL(file); e.target.value = "";
+}
+async function shareScreen() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({ video:true });
+        const track = stream.getVideoTracks()[0];
+        const bitmap = await new ImageCapture(track).grabFrame();
+        const c = document.createElement("canvas");
+        c.width = bitmap.width; c.height = bitmap.height;
+        c.getContext("2d").drawImage(bitmap, 0, 0);
+        pendingImage = c.toDataURL("image/jpeg", 0.85).split(",")[1];
+        track.stop(); userIn.placeholder = "Screen captured!";
+    } catch(e) { if (e.name !== "NotAllowedError") renderError("Couldn't capture screen."); }
+}
+
+function clearPendingImage() { pendingImage = null; userIn.placeholder = "Talk to Lucifer..."; }
+function setDisabled(d) { userIn.disabled = sendBtn.disabled = d; }
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", hour12:true }); }
+function dateLabel(ts) { return new Date(ts).toLocaleDateString("en-IN", { day:"numeric", month:"long", year:"numeric" }); }
+function pad(n) { return String(n).padStart(2,"0"); }
+
+// ── Letter ────────────────────────────────────────────
+function openLetter() {
+    document.getElementById("letter-overlay").classList.add("visible");
+}
+function closeLetter() {
+    document.getElementById("letter-overlay").classList.remove("visible");
+}
+// Close on backdrop click
+document.getElementById("letter-overlay")?.addEventListener("click", function(e) {
+    if (e.target === this) closeLetter();
+});
+
+let timerSec = 0, timerInterval = null;
+function toggleTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    else timerInterval = setInterval(() => {
+        timerSec++;
+        const h = Math.floor(timerSec/3600), m = Math.floor((timerSec%3600)/60), s = timerSec%60;
+        document.getElementById("timer").textContent = h ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }, 1000);
+}
+</script>
+</body>
+</html>
