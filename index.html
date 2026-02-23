@@ -374,7 +374,10 @@ async function send() {
     try {
         const res = await fetch(BACKEND_URL + "/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+                "Content-Type": "application/json",
+                "X-Lucifer-Secret": "blue-1408" 
+            },
             body: JSON.stringify({
                 message: text,
                 image: imgSnap 
@@ -491,7 +494,7 @@ function exitSelectMode() {
 function toggleMsgSelect(wrap, fbKey, checked) {
     if (!fbKey) return;
     if (checked) { wrap.classList.add("selected"); selectedKeys.add(fbKey); }
-    else          { wrap.classList.remove("selected"); selectedKeys.delete(fbKey); }
+    else         { wrap.classList.remove("selected"); selectedKeys.delete(fbKey); }
     updateSelCount();
 }
 function updateSelCount() { selCount.textContent = selectedKeys.size + " SELECTED"; }
