@@ -37,6 +37,49 @@
             overflow: hidden;
         }
 
+        #site-lock {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(72, 123, 255, 0.24), transparent 42%),
+                radial-gradient(circle at 100% 100%, rgba(255, 73, 113, 0.22), transparent 45%),
+                linear-gradient(145deg, var(--bg-0), var(--bg-1) 48%, #160f28 100%);
+        }
+        .lock-title {
+            font-family: 'Space Grotesk', sans-serif;
+            letter-spacing: 4px;
+            font-size: 13px;
+            color: #e8f0ff;
+        }
+        .lock-input {
+            background: var(--input);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            padding: 12px 14px;
+            border-radius: 10px;
+            text-align: center;
+            font-family: 'Space Grotesk', sans-serif;
+            outline: none;
+            width: 240px;
+            font-size: 14px;
+        }
+        .lock-input:focus { border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(73, 135, 255, 0.2); }
+        #lock-error {
+            color: var(--accent-red);
+            font-size: 12px;
+            min-height: 16px;
+            font-style: italic;
+        }
+        #guild-content { display: none; width: 100%; height: 100%; }
+        body.unlocked #guild-content { display: flex; }
+        body.unlocked #site-lock { display: none; }
+
         .sidebar {
             width: 334px;
             background: linear-gradient(180deg, rgba(10, 23, 50, 0.88), rgba(16, 24, 50, 0.84));
@@ -389,6 +432,15 @@
 </head>
 <body>
 
+<div id="site-lock">
+    <h2 class="lock-title">GUILD HALL</h2>
+    <input type="password" id="guild-pass" class="lock-input" placeholder="Enter Secret Word">
+    <button class="btn" style="padding:12px 30px; font-size:12px;" onclick="unlockGuild()">UNSEAL</button>
+    <div id="lock-error"></div>
+</div>
+
+<div id="guild-content">
+
 <div class="letter-overlay" id="letter-overlay">
     <div class="letter-box">
         <button class="letter-close" onclick="closeLetter()">✕</button>
@@ -484,6 +536,8 @@ So I wrote code instead.
     </div>
 </div>
 
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -508,7 +562,8 @@ const db     = firebase.database();
 const auth   = firebase.auth();
 const msgRef = db.ref("messages");
 
-auth.signInAnonymously().catch(e => console.error("Login Error", e));
+let appStarted = false;
+let HANDSHAKE_SECRET = "blue-1408";
 
 const chatBox  = document.getElementById("chat-box");
 const userIn   = document.getElementById("user-in");
@@ -537,12 +592,64 @@ function updateLoveTimer() {
 setInterval(updateLoveTimer, 1000);
 
 // ── CHAT ──
-window.addEventListener("DOMContentLoaded", async () => {
+window.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("guild-pass").addEventListener("keydown", e => {
+        if (e.key === "Enter") unlockGuild();
+    });
+});
+
+async function unlockGuild() {
+    const passInput = document.getElementById("guild-pass");
+    const pass = passInput.value.trim();
+    const errorEl = document.getElementById("lock-error");
+    const btn = document.querySelector("#site-lock button");
+    if (!pass) {
+        errorEl.textContent = "Enter the secret word.";
+        return;
+    }
+
+    btn.textContent = "VERIFYING...";
+    errorEl.textContent = "";
+
+    try {
+        const res = await fetch(BACKEND_URL + "/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: pass })
+        });
+        const data = await res.json();
+
+        if (res.ok && data.status === "authorized") {
+            HANDSHAKE_SECRET = data.handshake || HANDSHAKE_SECRET;
+            document.body.classList.add("unlocked");
+            await startApp();
+            return;
+        }
+
+        errorEl.textContent = "The word is incorrect.";
+    } catch (_) {
+        errorEl.textContent = "Connection hazy... try again.";
+    } finally {
+        btn.textContent = "UNSEAL";
+    }
+}
+
+async function startApp() {
+    if (appStarted) return;
+    appStarted = true;
+
+    try {
+        await auth.signInAnonymously();
+    } catch (e) {
+        console.error("Login Error", e);
+    }
+
     await loadHistory();
     listenForIshan();
     updateLoveTimer();
+    setInterval(updateLoveTimer, 1000);
     loadLetterFromFile();
-});
+}
 
 userIn.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
 sendBtn.addEventListener("click", send);
@@ -582,7 +689,7 @@ async function send() {
 
         const res = await fetch(BACKEND_URL + "/chat", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Lucifer-Secret": "blue-1408" },
+            headers: { "Content-Type": "application/json", "X-Lucifer-Secret": HANDSHAKE_SECRET },
             body: JSON.stringify({ message: text })
         });
 
