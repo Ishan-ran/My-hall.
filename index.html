@@ -436,21 +436,18 @@ So I wrote code instead.
     <div class="panel">
         <h3>Bard's Crystal</h3>
         <div class="radio-meta">
-            <div class="radio-name" id="radio-name">Spotify Player</div>
-            <div class="radio-status" id="radio-status">Connect Spotify to search and play in-app.</div>
+            <div class="radio-name" id="radio-name">YouTube Player</div>
+            <div class="radio-status" id="radio-status">Search for any song on YouTube.</div>
         </div>
+        
         <div class="media-controls">
-            <button class="btn" onclick="connectSpotify()">CONNECT</button>
-            <button class="btn btn-muted" onclick="disconnectSpotify()">LOGOUT</button>
-            <button class="btn btn-open" onclick="openSpotifyCurrent()">OPEN</button>
+            <input type="text" id="song-search" class="media-input" placeholder="Search song on YouTube...">
+            <button class="btn" onclick="searchYoutubeSongs()">SEARCH</button>
         </div>
-        <div class="media-controls">
-            <input type="text" id="song-search" class="media-input" placeholder="Search song or artist...">
-            <button class="btn" onclick="searchSpotifySongs()">SEARCH</button>
-        </div>
-        <div class="media-help" id="media-help">Use CONNECT once, then search and play directly inside Spotify embed.</div>
-        <div class="spotify-wrap" id="spotify-wrap">
-            <iframe id="spotify-embed" class="spotify-embed" scrolling="no" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>
+        <div class="media-help" id="media-help">Search and play directly inside the Guild Hall. No premium required.</div>
+        
+        <div class="spotify-wrap visible" id="youtube-wrap" style="height: 152px; margin-top: 10px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border);">
+            <iframe id="youtube-embed" style="width: 100%; height: 100%; border: none;" src="" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
         </div>
         <div class="song-results" id="song-results"></div>
     </div>
@@ -495,6 +492,7 @@ So I wrote code instead.
 "use strict";
 
 const BACKEND_URL = "https://lucifer-backend-nas5.onrender.com";
+const YOUTUBE_API_KEY = "AIzaSyCTAGwCTqURhP-8gVV9yVlxeDC7wMTGZ6Y";
 
 const FIREBASE_CONFIG = {
     apiKey:             "AIzaSyAJhhW9z-EopZTQE0191PxSjC1dAIM61mc",
@@ -519,19 +517,10 @@ let isSending  = false;
 
 const songSearchInput = document.getElementById("song-search");
 const songResults = document.getElementById("song-results");
-const spotifyWrap = document.getElementById("spotify-wrap");
-const spotifyEmbed = document.getElementById("spotify-embed");
 const radioName = document.getElementById("radio-name");
 const radioStatus = document.getElementById("radio-status");
 let songResultsData = [];
-let currentSpotifyUrl = "";
 let letterRevealTimer = null;
-
-const SPOTIFY_AUTH_KEY = "spotify_auth_v1";
-const SPOTIFY_PKCE_VERIFIER = "spotify_pkce_verifier";
-const SPOTIFY_PKCE_STATE = "spotify_pkce_state";
-const SPOTIFY_CLIENT_ID_KEY = "spotify_client_id";
-const SPOTIFY_SCOPE = "user-read-private";
 
 // ── TIMER ──
 const START_DATE = new Date(2025, 11, 6, 22, 51, 0); 
@@ -552,7 +541,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     await loadHistory();
     listenForIshan();
     updateLoveTimer();
-    initSpotifyPlayer();
     loadLetterFromFile();
 });
 
@@ -629,203 +617,61 @@ function updateRadioStatus(text) {
     radioStatus.textContent = text;
 }
 
-function initSpotifyPlayer() {
-    songSearchInput.addEventListener("keydown", e => {
-        if (e.key === "Enter") searchSpotifySongs();
-    });
+// ── YOUTUBE SEARCH & PLAY ──
+async function searchYoutubeSongs() {
+    const query = songSearchInput.value.trim();
+    if (!query) return;
 
-    spotifyEmbed.src = "https://open.spotify.com/embed/track/11dFghVXANMlKmJXsNCbNl?utm_source=generator&theme=0";
-    spotifyEmbed.style.height = "152px";
-    currentSpotifyUrl = "https://open.spotify.com/track/11dFghVXANMlKmJXsNCbNl";
-
-    handleSpotifyRedirect().then(async () => {
-        const hasToken = await ensureSpotifyToken();
-        updateRadioStatus(hasToken ? "Spotify connected. Search for any song." : "Connect Spotify to enable full search.");
-    });
-}
-
-function getSpotifyClientId() {
-    return localStorage.getItem(SPOTIFY_CLIENT_ID_KEY) || "";
-}
-
-function setSpotifyClientId(id) {
-    localStorage.setItem(SPOTIFY_CLIENT_ID_KEY, id);
-}
-
-function getSpotifyAuth() {
-    const raw = localStorage.getItem(SPOTIFY_AUTH_KEY);
-    if (!raw) return null;
-    try { return JSON.parse(raw); } catch (_) { return null; }
-}
-
-function saveSpotifyAuth(auth) {
-    localStorage.setItem(SPOTIFY_AUTH_KEY, JSON.stringify(auth));
-}
-
-function clearSpotifyAuth() {
-    localStorage.removeItem(SPOTIFY_AUTH_KEY);
-}
-
-function base64UrlEncode(bytes) {
-    return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-async function sha256(text) {
-    const data = new TextEncoder().encode(text);
-    return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-}
-
-function randomString(length = 64) {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let out = "";
-    const arr = crypto.getRandomValues(new Uint8Array(length));
-    for (let i = 0; i < length; i++) out += chars[arr[i] % chars.length];
-    return out;
-}
-
-async function connectSpotify() {
-    let clientId = getSpotifyClientId();
-    if (!clientId) {
-        clientId = (prompt("Enter your Spotify App Client ID (one-time):", "") || "").trim();
-        if (!clientId) {
-            updateRadioStatus("Spotify Client ID is required to connect.");
-            return;
-        }
-        setSpotifyClientId(clientId);
-    }
-
-    const verifier = randomString(96);
-    const challenge = base64UrlEncode(await sha256(verifier));
-    const state = randomString(24);
-    localStorage.setItem(SPOTIFY_PKCE_VERIFIER, verifier);
-    localStorage.setItem(SPOTIFY_PKCE_STATE, state);
-
-    const redirectUri = `${window.location.origin}${window.location.pathname}`;
-    const authUrl = new URL("https://accounts.spotify.com/authorize");
-    authUrl.searchParams.set("response_type", "code");
-    authUrl.searchParams.set("client_id", clientId);
-    authUrl.searchParams.set("scope", SPOTIFY_SCOPE);
-    authUrl.searchParams.set("redirect_uri", redirectUri);
-    authUrl.searchParams.set("state", state);
-    authUrl.searchParams.set("code_challenge_method", "S256");
-    authUrl.searchParams.set("code_challenge", challenge);
-
-    const appDeepLink = "spotify://";
-    const oauthConnectUrl = authUrl.toString();
-
-    updateRadioStatus("Opening Spotify app... if unavailable, redirecting to Spotify connect.");
-
-    const fallbackTimer = setTimeout(() => {
-        window.location.href = oauthConnectUrl;
-    }, 800);
+    updateRadioStatus("Searching YouTube...");
+    songResults.innerHTML = "";
 
     try {
-        window.location.href = appDeepLink;
-    } catch (_) {
-        clearTimeout(fallbackTimer);
-        window.location.href = oauthConnectUrl;
+        const endpoint = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=12&q=${encodeURIComponent(query)}&key=${YOUTUBE_API_KEY}`;
+        const res = await fetch(endpoint);
+        const data = await res.json();
+
+        if (!res.ok || data.error) {
+            throw new Error(data?.error?.message || "youtube_search_failed");
+        }
+
+        if (data.items && data.items.length > 0) {
+            songResultsData = data.items.map(item => ({
+                id: item.id.videoId,
+                trackName: item.snippet.title || "Untitled",
+                artistName: item.snippet.channelTitle || "Unknown channel"
+            }));
+            
+            renderYoutubeResults();
+            updateRadioStatus(`Found ${songResultsData.length} tracks.`);
+            playYoutubeTrack(0);
+        } else {
+            songResultsData = [];
+            renderYoutubeResults();
+            updateRadioStatus("No results found.");
+        }
+    } catch (err) {
+        console.error(err);
+        updateRadioStatus("Search failed. Check API key quota/settings.");
     }
 }
 
-function disconnectSpotify() {
-    clearSpotifyAuth();
-    songResultsData = [];
-    renderSongResults();
-    updateRadioStatus("Spotify disconnected.");
-}
-
-async function handleSpotifyRedirect() {
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
-    const savedState = localStorage.getItem(SPOTIFY_PKCE_STATE);
-    if (!code) return;
-
-    if (!savedState || state !== savedState) {
-        updateRadioStatus("Spotify auth state mismatch. Please connect again.");
-        return;
-    }
-
-    const verifier = localStorage.getItem(SPOTIFY_PKCE_VERIFIER) || "";
-    const clientId = getSpotifyClientId();
-    const redirectUri = `${window.location.origin}${window.location.pathname}`;
-
-    const body = new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-        client_id: clientId,
-        code_verifier: verifier
-    });
-
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString()
-    });
-
-    if (!res.ok) {
-        updateRadioStatus("Spotify auth failed. Check app settings and redirect URI.");
-        return;
-    }
-
-    const token = await res.json();
-    saveSpotifyAuth({
-        access_token: token.access_token,
-        refresh_token: token.refresh_token || "",
-        expires_at: Date.now() + ((token.expires_in || 3600) - 30) * 1000
-    });
-
-    localStorage.removeItem(SPOTIFY_PKCE_VERIFIER);
-    localStorage.removeItem(SPOTIFY_PKCE_STATE);
-    window.history.replaceState({}, document.title, redirectUri);
-}
-
-async function ensureSpotifyToken() {
-    const auth = getSpotifyAuth();
-    if (!auth) return false;
-    if (Date.now() < (auth.expires_at || 0)) return true;
-    if (!auth.refresh_token) return false;
-
-    const body = new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: auth.refresh_token,
-        client_id: getSpotifyClientId()
-    });
-
-    const res = await fetch("https://accounts.spotify.com/api/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString()
-    });
-    if (!res.ok) return false;
-
-    const token = await res.json();
-    saveSpotifyAuth({
-        access_token: token.access_token,
-        refresh_token: token.refresh_token || auth.refresh_token,
-        expires_at: Date.now() + ((token.expires_in || 3600) - 30) * 1000
-    });
-    return true;
-}
-
-async function spotifyApi(pathWithQuery) {
-    const ok = await ensureSpotifyToken();
-    if (!ok) throw new Error("not_connected");
-    const auth = getSpotifyAuth();
-    const res = await fetch(`https://api.spotify.com/v1/${pathWithQuery}`, {
-        headers: { Authorization: `Bearer ${auth.access_token}` }
-    });
-    if (!res.ok) throw new Error("spotify_api_error");
-    return res.json();
-}
-
-function renderSongResults() {
+function renderYoutubeResults() {
     songResults.innerHTML = "";
+    
     if (songResultsData.length === 0) {
         const empty = document.createElement("div");
         empty.className = "song-item";
-        empty.innerHTML = `<div class="song-meta"><div class="song-title">No Spotify results</div><div class="song-artist">Try another keyword</div></div>`;
+        const meta = document.createElement("div");
+        meta.className = "song-meta";
+        const t = document.createElement("div");
+        t.className = "song-title";
+        t.textContent = "No results";
+        const a = document.createElement("div");
+        a.className = "song-artist";
+        a.textContent = "Try another keyword";
+        meta.appendChild(t);
+        meta.appendChild(a);
+        empty.appendChild(meta);
         songResults.appendChild(empty);
         return;
     }
@@ -833,40 +679,43 @@ function renderSongResults() {
     songResultsData.forEach((track, index) => {
         const row = document.createElement("div");
         row.className = "song-item";
-        row.innerHTML = `
-            <div class="song-meta">
-                <div class="song-title">${track.trackName}</div>
-                <div class="song-artist">${track.artistName}</div>
-            </div>
-            <button class="btn song-play">EMBED</button>
-        `;
-        row.querySelector("button").addEventListener("click", () => playSpotifyTrack(index));
+        const meta = document.createElement("div");
+        meta.className = "song-meta";
+        const title = document.createElement("div");
+        title.className = "song-title";
+        title.textContent = track.trackName;
+        const artist = document.createElement("div");
+        artist.className = "song-artist";
+        artist.textContent = track.artistName;
+        const button = document.createElement("button");
+        button.className = "btn song-play";
+        button.textContent = "PLAY";
+        button.addEventListener("click", () => playYoutubeTrack(index));
+
+        meta.appendChild(title);
+        meta.appendChild(artist);
+        row.appendChild(meta);
+        row.appendChild(button);
         songResults.appendChild(row);
     });
 }
 
-function embedSpotifyResource(type, id) {
-    const safeType = ["track", "album", "playlist", "artist", "episode", "show"].includes(type) ? type : "track";
-    const embedUrl = `https://open.spotify.com/embed/${safeType}/${id}?utm_source=generator&theme=0`;
-    spotifyEmbed.src = embedUrl;
-    spotifyEmbed.style.height = safeType === "track" || safeType === "episode" ? "152px" : "352px";
-    spotifyWrap.classList.add("visible");
-    currentSpotifyUrl = `https://open.spotify.com/${safeType}/${id}`;
-}
-
-function playSpotifyTrack(index) {
+function playYoutubeTrack(index) {
     const track = songResultsData[index];
     if (!track) return;
-    radioName.textContent = `${track.trackName} — ${track.artistName}`;
-    updateRadioStatus("Playing in Spotify embed.");
-    embedSpotifyResource("track", track.id);
+    
+    radioName.textContent = track.trackName;
+    updateRadioStatus("Now playing in the Guild Hall...");
+    
+    const embedUrl = `https://www.youtube.com/embed/${track.id}?autoplay=1&rel=0&playsinline=1`;
+    document.getElementById("youtube-embed").src = embedUrl;
 }
 
-function openSpotifyCurrent() {
-    const url = currentSpotifyUrl || "https://open.spotify.com";
-    window.open(url, "_blank", "noopener,noreferrer");
-}
+songSearchInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") searchYoutubeSongs();
+});
 
+// ── LETTER ──
 async function loadLetterFromFile() {
     const letterEl = document.getElementById("letter-text");
     if (!letterEl) return;
@@ -913,38 +762,6 @@ function revealLetterSlowly() {
     step();
 }
 
-async function searchSpotifySongs() {
-    const query = songSearchInput.value.trim();
-    if (!query) return;
-
-    updateRadioStatus("Searching Spotify...");
-    songResults.innerHTML = "";
-
-    try {
-        const data = await spotifyApi(`search?type=track&limit=20&q=${encodeURIComponent(query)}`);
-        songResultsData = (data.tracks?.items || []).map(item => ({
-            id: item.id,
-            trackName: item.name,
-            artistName: (item.artists || []).map(a => a.name).join(", "),
-            trackUrl: item.external_urls?.spotify || ""
-        }));
-        renderSongResults();
-
-        if (songResultsData.length > 0) {
-            updateRadioStatus(`Found ${songResultsData.length} Spotify tracks.`);
-            playSpotifyTrack(0);
-        } else {
-            updateRadioStatus("No Spotify results for this keyword.");
-        }
-    } catch (err) {
-        if (String(err.message) === "not_connected") {
-            updateRadioStatus("Connect Spotify first, then search.");
-            return;
-        }
-        console.error(err);
-        updateRadioStatus("Spotify search failed. Try again.");
-    }
-}
 function openLetter() {
     document.getElementById("letter-overlay").classList.add("visible");
     revealLetterSlowly();
