@@ -761,22 +761,25 @@ function renderLoading() {
     return w;
 }
 
-function clearAllChat() {
-    if (!confirm("Clear all messages? This cannot be undone.")) return;
-    chatBox.innerHTML = "";
-    conversation_history = [];
-}
-
-function clearAllChat() {
-    if (!confirm("Clear all messages? This cannot be undone.")) return;
-    chatBox.innerHTML = "";
-    conversation_history = [];
+async function clearAllChat() {
+    if (!confirm("Clear all messages from Firebase and this chat? This cannot be undone.")) return;
+    try {
+        await msgRef.remove();
+        chatBox.innerHTML = "";
+        updateRadioStatus("All chat messages deleted.");
+    } catch (err) {
+        console.error(err);
+        updateRadioStatus("Failed to clear messages.");
+    }
 }
 
 function updateRadioStatus(text) {
     radioStatus.textContent = text;
 }
 
+// ── YOUTUBE SEARCH & PLAY (LAZY - No requests until user clicks SEARCH) ──
+// ── YOUTUBE SEARCH & PLAY (LAZY - No requests until user clicks SEARCH) ──
+// ── YOUTUBE SEARCH & PLAY (LAZY - No requests until user clicks SEARCH) ──
 // ── YOUTUBE SEARCH & PLAY (LAZY - No requests until user clicks SEARCH) ──
 let youtubeLastSearchTime = 0;
 
