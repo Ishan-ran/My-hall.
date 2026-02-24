@@ -767,31 +767,31 @@ async function clearAllChat() {
         if (!auth.currentUser) {
             await auth.signInAnonymously();
         }
-
-        const tasks = [msgRef.remove()];
+        await msgRef.remove();
+        chatBox.innerHTML = "";
 
         if (HANDSHAKE_SECRET) {
-            tasks.push(
-                fetch(BACKEND_URL + "/clear-chat", {
+            try {
+                const res = await fetch(BACKEND_URL + "/clear-chat", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "X-Lucifer-Secret": HANDSHAKE_SECRET
                     }
-                })
-            );
+                });
+                if (!res.ok) {
+                    console.warn("Backend clear-chat failed with status", res.status);
+                    updateRadioStatus("Firebase cleared. Backend memory clear skipped.");
+                    return;
+                }
+            } catch (clearErr) {
+                console.warn("Backend clear-chat request failed:", clearErr);
+                updateRadioStatus("Firebase cleared. Backend memory clear skipped.");
+                return;
+            }
         }
 
-        const results = await Promise.allSettled(tasks);
-        const failed = results.some(r => r.status === "rejected");
-
-        chatBox.innerHTML = "";
-        updateRadioStatus(failed ? "Some clear operations failed." : "All chat messages deleted.");
-
-        if (failed) {
-            alert("Some data could not be cleared. Check console for details.");
-            console.error("Clear all results:", results);
-        }
+        updateRadioStatus("All chat messages deleted.");
     } catch (err) {
         console.error(err);
         updateRadioStatus("Failed to clear messages.");
