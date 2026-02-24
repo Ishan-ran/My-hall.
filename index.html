@@ -578,6 +578,7 @@ const chatBox  = document.getElementById("chat-box");
 const userIn   = document.getElementById("user-in");
 const sendBtn  = document.getElementById("send-btn");
 let isSending  = false;
+let shouldResetContext = false;
 
 const songSearchInput = document.getElementById("song-search");
 const songResults = document.getElementById("song-results");
@@ -730,11 +731,12 @@ async function send() {
         const res = await fetch(BACKEND_URL + "/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-Lucifer-Secret": HANDSHAKE_SECRET },
-            body: JSON.stringify({ message: text })
+            body: JSON.stringify({ message: text, reset_context: shouldResetContext })
         });
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.reply || "Chat failed");
+        shouldResetContext = false;
         const aiRef = await msgRef.push({ role:"lucifer", text: data.reply, time: Date.now(), src:"ai" });
         renderMessage({ role:"lucifer", text: data.reply, time: Date.now() }, aiRef.key);
         loader.remove();
@@ -769,28 +771,7 @@ async function clearAllChat() {
         }
         await msgRef.remove();
         chatBox.innerHTML = "";
-
-        if (HANDSHAKE_SECRET) {
-            try {
-                const res = await fetch(BACKEND_URL + "/clear-chat", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Lucifer-Secret": HANDSHAKE_SECRET
-                    }
-                });
-                if (!res.ok) {
-                    console.warn("Backend clear-chat failed with status", res.status);
-                    updateRadioStatus("Firebase cleared. Backend memory clear skipped.");
-                    return;
-                }
-            } catch (clearErr) {
-                console.warn("Backend clear-chat request failed:", clearErr);
-                updateRadioStatus("Firebase cleared. Backend memory clear skipped.");
-                return;
-            }
-        }
-
+        shouldResetContext = true;
         updateRadioStatus("All chat messages deleted.");
     } catch (err) {
         console.error(err);
