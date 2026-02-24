@@ -83,6 +83,14 @@
             color: #f4a0a0; padding: 12px 14px; border-radius: 2px;
             font-size: 15px; line-height: 1.6; animation: pop 0.25s ease;
         }
+        .sent-bubble.user-side {
+            align-self: flex-start;
+            background: linear-gradient(135deg, #1a0d14, #130b10);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--gold-d);
+            color: var(--text);
+        }
+        .sent-bubble.user-side .sent-time { text-align: left; }
         @keyframes pop { from { opacity:0; transform:scale(0.97) translateY(6px); } to { opacity:1; transform:none; } }
         .sent-label { font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 2px; opacity: 0.5; margin-bottom: 5px; }
         .sent-time { font-size: 10px; color: var(--ghost); margin-top: 5px; text-align: right; }
@@ -238,8 +246,8 @@ async function loadSenderHistory() {
         if (snap.exists()) {
             snap.forEach(child => {
                 const msg = child.val();
-                if (msg.role === "lucifer" && (msg.src === "ishan" || msg.src === "ai")) {
-                    renderSentMessage(msg);
+                if (msg.role === "lucifer" || msg.role === "user") {
+                    renderSentMessage(msg, child.key);
                 }
             });
             sentFeed.scrollTop = sentFeed.scrollHeight;
@@ -249,21 +257,23 @@ async function loadSenderHistory() {
     }
 }
 
-function renderSentMessage(msg) {
+function renderSentMessage(msg, key = null) {
     const bubble = document.createElement("div");
-    bubble.className = "sent-bubble";
-    bubble.innerHTML = `<div class="sent-label">LUCIFER</div><div>${escHtml(msg.text)}</div><div class="sent-time">${new Date(msg.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
+    const isUser = msg.role === "user";
+    bubble.className = isUser ? "sent-bubble user-side" : "sent-bubble";
+    if (key) bubble.dataset.fbkey = key;
+    const senderLabel = msg.role === "user" ? "MY BLUE" : "LUCIFER";
+    bubble.innerHTML = `<div class="sent-label">${senderLabel}</div><div>${escHtml(msg.text)}</div><div class="sent-time">${new Date(msg.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
     sentFeed.appendChild(bubble);
 }
 
 function listenForNewMessages() {
     msgRef.orderByChild("time").limitToLast(1).on("child_added", snap => {
         const msg = snap.val();
-        if (msg.role === "lucifer" && (msg.src === "ishan" || msg.src === "ai")) {
-            if (!document.querySelector(`[data-msgtext="${msg.text.substring(0, 20)}"]`)) {
-                renderSentMessage(msg);
-                sentFeed.scrollTop = sentFeed.scrollHeight;
-            }
+        if (msg.role === "lucifer" || msg.role === "user") {
+            if (document.querySelector(`[data-fbkey="${snap.key}"]`)) return;
+            renderSentMessage(msg, snap.key);
+            sentFeed.scrollTop = sentFeed.scrollHeight;
         }
     });
 }
@@ -298,12 +308,8 @@ async function sendMsg() {
 
     try {
         const entry = { role:"lucifer", text, time: Date.now(), src:"ishan" };
-        await msgRef.push(entry);
-
-        const bubble = document.createElement("div");
-        bubble.className = "sent-bubble";
-        bubble.innerHTML = `<div class="sent-label">LUCIFER</div><div>${escHtml(text)}</div><div class="sent-time">${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
-        sentFeed.appendChild(bubble);
+        const sentRef = await msgRef.push(entry);
+        renderSentMessage(entry, sentRef.key);
 
         const ok = document.createElement("div");
         ok.className = "sent-ok"; ok.textContent = "delivered ✓";
