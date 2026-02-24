@@ -8,16 +8,16 @@
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root {
-            --bg:      #060402;
-            --surface: #0f0907;
-            --border:  #2a1a10;
-            --gold:    #c9a84c;
-            --gold-g:  #e8c96a;
-            --gold-d:  #6b5520;
-            --ember:   #c0392b;
-            --text:    #ddd0b0;
-            --text-d:  #6a5a45;
-            --ghost:   #3a2a1a;
+            --bg:      #0a0206;
+            --surface: #15070b;
+            --border:  #3f121d;
+            --gold:    #ff5f7a;
+            --gold-g:  #ff8aa0;
+            --gold-d:  #b22a48;
+            --ember:   #ff3d63;
+            --text:    #ffd9e1;
+            --text-d:  #9a5a68;
+            --ghost:   #6e3946;
         }
         html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Crimson Pro', serif; -webkit-tap-highlight-color: transparent; overflow: hidden; }
 
@@ -52,7 +52,7 @@
             cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center;
             transition: all 0.12s; user-select: none;
         }
-        .key:active { background: #1a0e08; border-color: var(--gold-d); transform: scale(0.95); }
+        .key:active { background: #240a11; border-color: var(--gold-d); transform: scale(0.95); }
         .pin-error { color: var(--ember); font-size: 13px; margin-top: 16px; height: 18px; font-style: italic; text-align: center; }
 
         /* ── SENDER SCREEN ── */
@@ -77,7 +77,7 @@
         }
         .sent-bubble {
             align-self: flex-end; max-width: 85%;
-            background: linear-gradient(135deg, #120808, #0f0606);
+            background: linear-gradient(135deg, #1f0a12, #15060c);
             border: 1px solid var(--ember); border-left: 3px solid var(--ember);
             color: #f4a0a0; padding: 12px 14px; border-radius: 2px;
             font-size: 15px; line-height: 1.6; animation: pop 0.25s ease;
@@ -92,7 +92,7 @@
             background: var(--surface); flex-shrink: 0;
         }
         .s-textarea {
-            width: 100%; background: #0a0603; border: 1px solid var(--border);
+            width: 100%; background: #12050a; border: 1px solid var(--border);
             color: var(--gold); padding: 12px 14px; font-size: 16px;
             font-family: 'Crimson Pro', serif; border-radius: 3px; outline: none;
             resize: none; min-height: 70px; line-height: 1.5;
@@ -101,7 +101,7 @@
         .s-textarea:focus { border-color: var(--gold-d); }
         .s-send-btn {
             width: 100%; margin-top: 10px; padding: 14px;
-            background: linear-gradient(180deg, #2a1a0a, #1a0e06);
+            background: linear-gradient(180deg, #3a0f1b, #230913);
             border: 1px solid var(--gold-d); color: var(--gold);
             font-family: 'Cinzel', serif; font-size: 12px; letter-spacing: 2px;
             cursor: pointer; border-radius: 3px; transition: all 0.2s;
@@ -198,11 +198,13 @@ function kp(k) {
     if (buf.length === 4) setTimeout(checkPin, 120);
 }
 
-function checkPin() {
+async function checkPin() {
     if (buf === SECRET_PIN) {
         lockScreen.classList.add("hidden");
         senderScreen.classList.add("visible");
         checkConnection();
+        await loadSenderHistory();
+        listenForNewMessages();
         msgInput.focus();
     } else {
         pinErr.textContent = "Wrong key.";
@@ -219,6 +221,42 @@ function checkConnection() {
     db.ref(".info/connected").on("value", snap => {
         connStatus.textContent = snap.val() ? "CONNECTED" : "OFFLINE...";
         connStatus.style.color = snap.val() ? "var(--gold)" : "var(--ember)";
+    });
+}
+
+async function loadSenderHistory() {
+    try {
+        const snap = await msgRef.orderByChild("time").once("value");
+        if (snap.exists()) {
+            snap.forEach(child => {
+                const msg = child.val();
+                if (msg.role === "lucifer" && (msg.src === "ishan" || msg.src === "ai")) {
+                    renderSentMessage(msg);
+                }
+            });
+            sentFeed.scrollTop = sentFeed.scrollHeight;
+        }
+    } catch (e) {
+        console.error("Failed to load sender history:", e);
+    }
+}
+
+function renderSentMessage(msg) {
+    const bubble = document.createElement("div");
+    bubble.className = "sent-bubble";
+    bubble.innerHTML = `<div class="sent-label">LUCIFER</div><div>${escHtml(msg.text)}</div><div class="sent-time">${new Date(msg.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>`;
+    sentFeed.appendChild(bubble);
+}
+
+function listenForNewMessages() {
+    msgRef.orderByChild("time").limitToLast(1).on("child_added", snap => {
+        const msg = snap.val();
+        if (msg.role === "lucifer" && (msg.src === "ishan" || msg.src === "ai")) {
+            if (!document.querySelector(`[data-msgtext="${msg.text.substring(0, 20)}"]`)) {
+                renderSentMessage(msg);
+                sentFeed.scrollTop = sentFeed.scrollHeight;
+            }
+        }
     });
 }
 
